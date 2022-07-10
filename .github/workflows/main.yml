@@ -1,0 +1,222 @@
+name: Build Android Or IOS
+
+on:
+    push:
+        branches: master
+    pull_request:
+        branches: master
+
+    workflow_dispatch:
+
+env:
+    BUILD_TYPE: ${{ secrets.BUILD_TYPE }}
+    ANDROID: 'android'
+    IOS: 'ios'
+
+jobs:
+    build-android:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@master
+              if: env.BUILD_TYPE == env.ANDROID
+              with:
+                  repository: payamjalili/AcademyFlutterShop
+                  token: ${{secrets.MY_PAT}}
+
+            - uses: actions/checkout@v2
+              if: env.BUILD_TYPE == env.ANDROID
+              with:
+                  path: 'build-data'
+
+            - name: Move current build data
+              if: env.BUILD_TYPE == env.ANDROID
+              run: |
+                  cp -r ./build-data/. ./
+                  export PROJECT_NAME=`cat project-name.txt`
+                  echo $PROJECT_NAME
+
+            - name: Changing package name
+              if: env.BUILD_TYPE == env.ANDROID
+              run: |
+                  export DEFAULT_BUNDLE_IDENTIFIER='com.bashgahapp.academy'
+                  export DEFAULT_PROJECT_NAME='academy'
+                  export PROJECT_NAME=`cat project-name.txt`
+                  export PROJECT_APP_NAME=`cat project-app-name.txt`
+                  export PROJECT_BUNDLE_IDENTIFIER='com.bashgahapp.'$PROJECT_NAME
+                  sed -i 's/'$DEFAULT_BUNDLE_IDENTIFIER'/'$PROJECT_BUNDLE_IDENTIFIER'/g' android/app/src/main/kotlin/com/bashgahapp/academy/MainActivity.kt
+                  sed -i 's/'$DEFAULT_BUNDLE_IDENTIFIER'/'$PROJECT_BUNDLE_IDENTIFIER'/g' android/app/src/main/AndroidManifest.xml
+                  sed -i 's/'$DEFAULT_BUNDLE_IDENTIFIER'/'$PROJECT_BUNDLE_IDENTIFIER'/g' android/app/src/debug/AndroidManifest.xml
+                  sed -i 's/'$DEFAULT_BUNDLE_IDENTIFIER'/'$PROJECT_BUNDLE_IDENTIFIER'/g' android/app/src/profile/AndroidManifest.xml
+                  sed -i 's/'$DEFAULT_BUNDLE_IDENTIFIER'/'$PROJECT_BUNDLE_IDENTIFIER'/g' android/app/build.gradle
+                  sed -i 's/'$DEFAULT_BUNDLE_IDENTIFIER'/'$PROJECT_BUNDLE_IDENTIFIER'/g' android/app/google-services.json
+                  sed -i 's/'android:label=\"$DEFAULT_PROJECT_NAME\"'/'android:label=\"$PROJECT_APP_NAME\"'/g' android/app/src/main/AndroidManifest.xml
+                  mv android/app/src/main/kotlin/com/bashgahapp/academy android/app/src/main/kotlin/com/bashgahapp/$PROJECT_NAME
+
+            - name: Setup JDK
+              if: env.BUILD_TYPE == env.ANDROID
+              uses: actions/setup-java@v1
+              with:
+                  java-version: '12.x'
+
+            - name: Cache Flutter dependencies
+              if: env.BUILD_TYPE == env.ANDROID
+              uses: actions/cache@v1
+              with:
+                  path: /opt/hostedtoolcache/flutter
+                  key: ${{runner.OS}}-flutter-install-cache-2.2.2
+
+            - name: Setup flutter
+              if: env.BUILD_TYPE == env.ANDROID
+              uses: subosito/flutter-action@v1
+              with:
+                  flutter-version: '2.2.2'
+                  channel: 'stable'
+            - run: flutter pub get
+              if: env.BUILD_TYPE == env.ANDROID
+
+            - name: Build the APK
+              if: env.BUILD_TYPE == env.ANDROID
+              run: flutter build apk --release
+
+            - name: Upload Artifact
+              if: env.BUILD_TYPE == env.ANDROID
+              uses: actions/upload-artifact@v1
+              with:
+                  name: release-apk
+                  path: build/app/outputs/flutter-apk/app-release.apk
+
+            - name: Renaming the APK
+              if: env.BUILD_TYPE == env.ANDROID
+              run: |
+                  export PROJECT_NAME=`cat project-name.txt`
+                  cd build/app/outputs/flutter-apk/
+                  mv app-release.apk $PROJECT_NAME.apk
+                  ls
+
+            - name: Deploy the APK to Staging server
+              if: env.BUILD_TYPE == env.ANDROID
+              uses: easingthemes/ssh-deploy@main
+              env:
+                  SSH_PRIVATE_KEY: ${{secrets.SERVER_SSH_KEY}}
+                  ARGS: '-rltgoDzvO'
+                  SOURCE: 'build/app/outputs/flutter-apk/'
+                  REMOTE_HOST: ${{secrets.SERVER_IP}}
+                  REMOTE_USER: ${{secrets.SERVER_USERNAME}}
+                  TARGET: '/var/www/html/output/flutter-shop'
+                  EXCLUDE: 'app.apk.sha1,app.apk'
+
+    build-ios:
+        runs-on: macOS-latest
+
+        steps:
+            - uses: actions/checkout@master
+              if: env.BUILD_TYPE == env.IOS
+              with:
+                  repository: payamjalili/AcademyFlutterShop
+                  token: ${{secrets.MY_PAT}}
+
+            - uses: actions/checkout@v2
+              if: env.BUILD_TYPE == env.IOS
+              with:
+                  path: 'build-data'
+
+            - name: Move current build data
+              if: env.BUILD_TYPE == env.IOS
+              run: |
+                  cp -r ./build-data/. ./
+                  export PROJECT_NAME=`cat project-name.txt`
+                  echo $PROJECT_NAME
+
+            - name: Changing package name
+              if: env.BUILD_TYPE == env.IOS
+              run: |
+                  export DEFAULT_BUNDLE_IDENTIFIER='com.bashgahapp.academy'
+                  export DEFAULT_PROJECT_NAME='academy'
+                  export PROJECT_NAME=`cat project-name.txt`
+                  export PROJECT_APP_NAME=`cat project-app-name.txt`
+                  export PROJECT_BUNDLE_IDENTIFIER='com.bashgahapp.'$PROJECT_NAME
+                  sed -i '' 's/'$DEFAULT_BUNDLE_IDENTIFIER'/'$PROJECT_BUNDLE_IDENTIFIER'/g' ios/GoogleService-Info.plist
+                  sed -i '' 's/'$DEFAULT_BUNDLE_IDENTIFIER'/'$PROJECT_BUNDLE_IDENTIFIER'/g' ios/fastlane/Appfile
+                  sed -i '' 's/'$DEFAULT_BUNDLE_IDENTIFIER'/'$PROJECT_BUNDLE_IDENTIFIER'/g' ios/fastlane/variables/FastFile
+                  sed -i '' 's/'$DEFAULT_PROJECT_NAME'/'$PROJECT_APP_NAME'/g' ios/fastlane/variables/FastFile
+                  sed -i '' 's/'$DEFAULT_PROJECT_NAME'/'$PROJECT_APP_NAME'/g' ios/Runner/Info.plist
+
+            - name: Cache Flutter dependencies
+              if: env.BUILD_TYPE == env.IOS
+              uses: actions/cache@v2
+              with:
+                  path: /opt/hostedtoolcache/flutter
+                  key: ${{runner.OS}}-flutter-install-cache-2.2.2
+
+            - name: Setup flutter
+              if: env.BUILD_TYPE == env.IOS
+              uses: subosito/flutter-action@v1
+              with:
+                  flutter-version: '2.2.2'
+                  channel: 'stable'
+            - run: flutter pub get
+              if: env.BUILD_TYPE == env.IOS
+
+            - uses: actions/setup-ruby@v1
+              if: env.BUILD_TYPE == env.IOS
+              with:
+                  ruby-version: '2.6'
+
+            - uses: actions/cache@v2
+              if: env.BUILD_TYPE == env.IOS
+              with:
+                  path: vendor/bundle
+                  key: ${{runner.os}}-ruby-2.6
+
+            - name: Install Gems
+              if: env.BUILD_TYPE == env.IOS
+              working-directory: ./ios
+              run: bundle check || bundle install --path vendor/bundle
+
+            - uses: actions/cache@v2
+              if: env.BUILD_TYPE == env.IOS
+              with:
+                  path: ios/pods
+                  key: ${{runner.os}}-pods
+
+            - name: Install Pods
+              if: env.BUILD_TYPE == env.IOS
+              working-directory: ./ios
+              run: pod install
+
+            - name: Build IOS release version IPA
+              if: env.BUILD_TYPE == env.IOS
+              working-directory: ./ios
+              run: bundle exec fastlane release
+              env:
+                  MATCH_PASSWORD: '${{secrets.MATCH_PASSWORD}}'
+                  FASTLANE_SESSION: '${{secrets.FASTLANE_SESSION}}'
+                  FASTLANE_PASSWORD: '${{secrets.FASTLANE_PASSWORD}}'
+
+            - name: Upload Artifact
+              if: env.BUILD_TYPE == env.IOS
+              uses: actions/upload-artifact@v1
+              with:
+                  name: release-ipa
+                  path: ios/builds/Runner.ipa
+
+            - name: Renaming the IPA
+              if: env.BUILD_TYPE == env.IOS
+              run: |
+                  export PROJECT_NAME=`cat project-name.txt`
+                  cd ios/builds
+                  mv Runner.ipa $PROJECT_NAME.ipa
+                  ls
+
+            - name: Deploy the IPA to Staging server
+              if: env.BUILD_TYPE == env.IOS
+              uses: easingthemes/ssh-deploy@main
+              env:
+                  SSH_PRIVATE_KEY: ${{secrets.SERVER_SSH_KEY}}
+                  ARGS: '-rltgoDzvO'
+                  SOURCE: 'ios/builds/'
+                  REMOTE_HOST: ${{secrets.SERVER_IP}}
+                  REMOTE_USER: ${{secrets.SERVER_USERNAME}}
+                  TARGET: '/var/www/html/output/flutter-shop'
+                  EXCLUDE: 'Runner.app.dSYM.zip'
